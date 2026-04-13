@@ -119,6 +119,7 @@ func (smart *SMARTctl) Collect() {
 		smart.mineSCSIBytesRead()
 		smart.mineSCSIBytesWritten()
 		smart.mineSCSIPercentageUsedEndurance()
+		smart.mineSCSIPendingDefects()
 	}
 }
 
@@ -766,6 +767,20 @@ func (smart *SMARTctl) mineSCSIPercentageUsedEndurance() {
 			metricSCSIPercentageUsedEndurance,
 			prometheus.GaugeValue,
 			pue.Get("percentage_used_endurance_indicator").Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+}
+
+func (smart *SMARTctl) mineSCSIPendingDefects() {
+	pd := smart.json.Get("scsi_pending_defects")
+	if pd.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricSCSIPendingDefectsCount,
+			prometheus.GaugeValue,
+			pd.Get("count").Float(),
 			smart.device.device,
 			smart.device.serial,
 			smart.device.model,
