@@ -118,6 +118,7 @@ func (smart *SMARTctl) Collect() {
 		smart.mineSCSIErrorCounterLog()
 		smart.mineSCSIBytesRead()
 		smart.mineSCSIBytesWritten()
+		smart.mineSCSIPercentageUsedEndurance()
 	}
 }
 
@@ -128,6 +129,7 @@ func (smart *SMARTctl) mineExitStatus() {
 		smart.json.Get("smartctl.exit_status").Float(),
 		smart.device.device,
 		smart.device.serial,
+		smart.device.model,
 	)
 }
 
@@ -165,6 +167,7 @@ func (smart *SMARTctl) mineCapacity() {
 		smart.json.Get("user_capacity.blocks").Float(),
 		smart.device.device,
 		smart.device.serial,
+		smart.device.model,
 	)
 	smart.ch <- prometheus.MustNewConstMetric(
 		metricDeviceCapacityBytes,
@@ -172,6 +175,7 @@ func (smart *SMARTctl) mineCapacity() {
 		smart.json.Get("user_capacity.bytes").Float(),
 		smart.device.device,
 		smart.device.serial,
+		smart.device.model,
 	)
 	nvme_total_capacity := smart.json.Get("nvme_total_capacity")
 	if nvme_total_capacity.Exists() {
@@ -181,6 +185,7 @@ func (smart *SMARTctl) mineCapacity() {
 			nvme_total_capacity.Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 	}
 }
@@ -193,6 +198,7 @@ func (smart *SMARTctl) mineBlockSize() {
 			smart.json.Get(fmt.Sprintf("%s_block_size", blockType)).Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 			blockType,
 		)
 	}
@@ -211,6 +217,7 @@ func (smart *SMARTctl) mineInterfaceSpeed() {
 					tSpeed.Get("units_per_second").Float()*tSpeed.Get("bits_per_unit").Float(),
 					smart.device.device,
 					smart.device.serial,
+					smart.device.model,
 					speedType,
 				)
 			}
@@ -243,6 +250,7 @@ func (smart *SMARTctl) mineDeviceAttribute() {
 				attribute.Get(path).Float(),
 				smart.device.device,
 				smart.device.serial,
+				smart.device.model,
 				name,
 				flagsShort,
 				flagsLong,
@@ -263,6 +271,7 @@ func (smart *SMARTctl) minePowerOnSeconds() {
 			GetFloatIfExists(pot, "hours", 0)*60*60+GetFloatIfExists(pot, "minutes", 0)*60,
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 	}
 }
@@ -278,6 +287,7 @@ func (smart *SMARTctl) mineRotationRate() {
 			rRate,
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 	}
 }
@@ -293,6 +303,7 @@ func (smart *SMARTctl) mineTemperatures() {
 				value.Float(),
 				smart.device.device,
 				smart.device.serial,
+				smart.device.model,
 				key.String(),
 			)
 			return true
@@ -310,6 +321,7 @@ func (smart *SMARTctl) minePowerCycleCount() {
 			powerCycleCount.Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 		return
 	}
@@ -323,6 +335,7 @@ func (smart *SMARTctl) minePowerCycleCount() {
 			powerCycleCount.Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 		return
 	}
@@ -337,6 +350,7 @@ func (smart *SMARTctl) mineDeviceSCTStatus() {
 			status.Get("device_state").Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 	}
 }
@@ -348,6 +362,7 @@ func (smart *SMARTctl) mineNvmePercentageUsed() {
 		smart.json.Get("nvme_smart_health_information_log.percentage_used").Float(),
 		smart.device.device,
 		smart.device.serial,
+		smart.device.model,
 	)
 }
 
@@ -358,6 +373,7 @@ func (smart *SMARTctl) mineNvmeAvailableSpare() {
 		smart.json.Get("nvme_smart_health_information_log.available_spare").Float(),
 		smart.device.device,
 		smart.device.serial,
+		smart.device.model,
 	)
 }
 
@@ -368,6 +384,7 @@ func (smart *SMARTctl) mineNvmeAvailableSpareThreshold() {
 		smart.json.Get("nvme_smart_health_information_log.available_spare_threshold").Float(),
 		smart.device.device,
 		smart.device.serial,
+		smart.device.model,
 	)
 }
 
@@ -378,6 +395,7 @@ func (smart *SMARTctl) mineNvmeCriticalWarning() {
 		smart.json.Get("nvme_smart_health_information_log.critical_warning").Float(),
 		smart.device.device,
 		smart.device.serial,
+		smart.device.model,
 	)
 }
 
@@ -388,6 +406,7 @@ func (smart *SMARTctl) mineNvmeMediaErrors() {
 		smart.json.Get("nvme_smart_health_information_log.media_errors").Float(),
 		smart.device.device,
 		smart.device.serial,
+		smart.device.model,
 	)
 }
 
@@ -398,6 +417,7 @@ func (smart *SMARTctl) mineNvmeNumErrLogEntries() {
 		smart.json.Get("nvme_smart_health_information_log.num_err_log_entries").Float(),
 		smart.device.device,
 		smart.device.serial,
+		smart.device.model,
 	)
 }
 
@@ -438,6 +458,7 @@ func (smart *SMARTctl) mineNvmeBytesRead() {
 		data_units_read.Float()*1000.0*512.0,
 		smart.device.device,
 		smart.device.serial,
+		smart.device.model,
 	)
 }
 
@@ -455,6 +476,7 @@ func (smart *SMARTctl) mineNvmeBytesWritten() {
 		data_units_written.Float()*1000.0*512.0,
 		smart.device.device,
 		smart.device.serial,
+		smart.device.model,
 	)
 }
 
@@ -470,6 +492,7 @@ func (smart *SMARTctl) mineSCSIBytesRead() {
 			SCSIHealth.Get("read.gigabytes_processed").Float()*1e9,
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 	}
 }
@@ -486,6 +509,7 @@ func (smart *SMARTctl) mineSCSIBytesWritten() {
 			SCSIHealth.Get("write.gigabytes_processed").Float()*1e9,
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 	}
 }
@@ -499,6 +523,7 @@ func (smart *SMARTctl) mineSmartStatus() {
 			smartStatus.Get("passed").Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 	}
 }
@@ -518,6 +543,7 @@ func (smart *SMARTctl) mineDeviceStatistics() {
 				statistic.Get("value").Float(),
 				smart.device.device,
 				smart.device.serial,
+				smart.device.model,
 				table,
 				strings.TrimSpace(statistic.Get("name").String()),
 				strings.TrimSpace(statistic.Get("flags.string").String()),
@@ -538,6 +564,7 @@ func (smart *SMARTctl) mineDeviceStatistics() {
 			statistic.Get("value").Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 			"SATA PHY Event Counters",
 			strings.TrimSpace(statistic.Get("name").String()),
 			"V---",
@@ -565,6 +592,7 @@ func (smart *SMARTctl) mineDeviceErrorLog() {
 			status.Get("count").Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 			logType,
 		)
 	}
@@ -578,6 +606,7 @@ func (smart *SMARTctl) mineDeviceSelfTestLog() {
 			status.Get("count").Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 			logType,
 		)
 		smart.ch <- prometheus.MustNewConstMetric(
@@ -586,6 +615,7 @@ func (smart *SMARTctl) mineDeviceSelfTestLog() {
 			status.Get("error_count_total").Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 			logType,
 		)
 	}
@@ -599,6 +629,7 @@ func (smart *SMARTctl) mineDeviceERC() {
 			status.Get("deciseconds").Float()/10.0,
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 			ercType,
 		)
 	}
@@ -613,6 +644,7 @@ func (smart *SMARTctl) mineSCSIGrownDefectList() {
 			scsi_grown_defect_list.Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 	}
 }
@@ -626,6 +658,7 @@ func (smart *SMARTctl) mineSCSIErrorCounterLog() {
 			SCSIHealth.Get("read.errors_corrected_by_rereads_rewrites").Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 		smart.ch <- prometheus.MustNewConstMetric(
 			metricReadErrorsCorrectedByEccFast,
@@ -633,6 +666,7 @@ func (smart *SMARTctl) mineSCSIErrorCounterLog() {
 			SCSIHealth.Get("read.errors_corrected_by_eccfast").Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 		smart.ch <- prometheus.MustNewConstMetric(
 			metricReadErrorsCorrectedByEccDelayed,
@@ -640,6 +674,7 @@ func (smart *SMARTctl) mineSCSIErrorCounterLog() {
 			SCSIHealth.Get("read.errors_corrected_by_eccdelayed").Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 		smart.ch <- prometheus.MustNewConstMetric(
 			metricReadTotalUncorrectedErrors,
@@ -647,6 +682,7 @@ func (smart *SMARTctl) mineSCSIErrorCounterLog() {
 			SCSIHealth.Get("read.total_uncorrected_errors").Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 		smart.ch <- prometheus.MustNewConstMetric(
 			metricWriteErrorsCorrectedByRereadsRewrites,
@@ -654,6 +690,7 @@ func (smart *SMARTctl) mineSCSIErrorCounterLog() {
 			SCSIHealth.Get("write.errors_corrected_by_rereads_rewrites").Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 		smart.ch <- prometheus.MustNewConstMetric(
 			metricWriteErrorsCorrectedByEccFast,
@@ -661,6 +698,7 @@ func (smart *SMARTctl) mineSCSIErrorCounterLog() {
 			SCSIHealth.Get("write.errors_corrected_by_eccfast").Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 		smart.ch <- prometheus.MustNewConstMetric(
 			metricWriteErrorsCorrectedByEccDelayed,
@@ -668,6 +706,7 @@ func (smart *SMARTctl) mineSCSIErrorCounterLog() {
 			SCSIHealth.Get("write.errors_corrected_by_eccdelayed").Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
 		smart.ch <- prometheus.MustNewConstMetric(
 			metricWriteTotalUncorrectedErrors,
@@ -675,7 +714,61 @@ func (smart *SMARTctl) mineSCSIErrorCounterLog() {
 			SCSIHealth.Get("write.total_uncorrected_errors").Float(),
 			smart.device.device,
 			smart.device.serial,
+			smart.device.model,
 		)
-		// TODO: Should we also export the verify category?
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricVerifyErrorsCorrectedByRereadsRewrites,
+			prometheus.GaugeValue,
+			SCSIHealth.Get("verify.errors_corrected_by_rereads_rewrites").Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricVerifyErrorsCorrectedByEccFast,
+			prometheus.GaugeValue,
+			SCSIHealth.Get("verify.errors_corrected_by_eccfast").Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricVerifyErrorsCorrectedByEccDelayed,
+			prometheus.GaugeValue,
+			SCSIHealth.Get("verify.errors_corrected_by_eccdelayed").Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricVerifyTotalUncorrectedErrors,
+			prometheus.GaugeValue,
+			SCSIHealth.Get("verify.total_uncorrected_errors").Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricSCSINonMediumErrorCount,
+			prometheus.GaugeValue,
+			SCSIHealth.Get("non_medium_error_count").Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+}
+
+func (smart *SMARTctl) mineSCSIPercentageUsedEndurance() {
+	pue := smart.json.Get("scsi_percentage_used_endurance_indicator")
+	if pue.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricSCSIPercentageUsedEndurance,
+			prometheus.GaugeValue,
+			pue.Get("percentage_used_endurance_indicator").Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
 	}
 }
