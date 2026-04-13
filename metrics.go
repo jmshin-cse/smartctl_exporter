@@ -64,6 +64,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -73,6 +74,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -82,6 +84,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -91,6 +94,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 			"blocks_type",
 		},
 		nil,
@@ -101,6 +105,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 			"speed_type",
 		},
 		nil,
@@ -111,6 +116,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 			"attribute_name",
 			"attribute_flags_short",
 			"attribute_flags_long",
@@ -125,6 +131,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -134,6 +141,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -143,6 +151,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 			"temperature_type",
 		},
 		nil,
@@ -153,6 +162,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -162,6 +172,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -171,6 +182,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -180,6 +192,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -189,6 +202,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -198,6 +212,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -207,6 +222,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -216,6 +232,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -225,6 +242,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -234,6 +252,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -243,6 +262,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -252,6 +272,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -261,6 +282,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 			"statistic_table",
 			"statistic_name",
 			"statistic_flags_short",
@@ -274,6 +296,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 			"error_log_type",
 		},
 		nil,
@@ -284,6 +307,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 			"self_test_log_type",
 		},
 		nil,
@@ -294,6 +318,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 			"self_test_log_type",
 		},
 		nil,
@@ -304,6 +329,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 			"op_type",
 		},
 		nil,
@@ -314,6 +340,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -323,6 +350,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -332,6 +360,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -341,6 +370,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -350,6 +380,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -359,6 +390,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -368,6 +400,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -377,6 +410,7 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
@@ -386,6 +420,67 @@ var (
 		[]string{
 			"device",
 			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricVerifyErrorsCorrectedByRereadsRewrites = prometheus.NewDesc(
+		"smartctl_verify_errors_corrected_by_rereads_rewrites",
+		"Verify Errors Corrected by ReReads/ReWrites",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricVerifyErrorsCorrectedByEccFast = prometheus.NewDesc(
+		"smartctl_verify_errors_corrected_by_eccfast",
+		"Verify Errors Corrected by ECC Fast",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricVerifyErrorsCorrectedByEccDelayed = prometheus.NewDesc(
+		"smartctl_verify_errors_corrected_by_eccdelayed",
+		"Verify Errors Corrected by ECC Delayed",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricVerifyTotalUncorrectedErrors = prometheus.NewDesc(
+		"smartctl_verify_total_uncorrected_errors",
+		"Verify Total Uncorrected Errors",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricSCSINonMediumErrorCount = prometheus.NewDesc(
+		"smartctl_scsi_non_medium_error_count",
+		"Device SCSI non-medium error count",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricSCSIPercentageUsedEndurance = prometheus.NewDesc(
+		"smartctl_scsi_percentage_used_endurance",
+		"SCSI percentage used endurance indicator",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
 		},
 		nil,
 	)
