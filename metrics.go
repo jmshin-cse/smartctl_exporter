@@ -484,4 +484,14 @@ var (
 		},
 		nil,
 	)
+	metricSCSIPendingDefectsCount = prometheus.NewDesc(
+		"smartctl_scsi_pending_defects_count",
+		"SCSI pending defects count",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
 )
