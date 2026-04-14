@@ -62,7 +62,9 @@ func NewSMARTctl(logger *slog.Logger, json gjson.Result, ch chan<- prometheus.Me
 	} else if obj := json.Get("scsi_model_name"); obj.Exists() {
 		model_name = obj.String()
 	}
-	// If the drive returns an empty model name, replace that with unknown.
+	// If the drive returns an empty or whitespace-only model name, replace with "unknown".
+	// Trim first so that whitespace-only strings are also caught.
+	model_name = strings.TrimSpace(model_name)
 	if model_name == "" {
 		model_name = "unknown"
 	}
@@ -75,7 +77,7 @@ func NewSMARTctl(logger *slog.Logger, json gjson.Result, ch chan<- prometheus.Me
 			device:     buildDeviceLabel(json.Get("device.name").String(), json.Get("device.type").String()),
 			serial:     strings.TrimSpace(json.Get("serial_number").String()),
 			family:     strings.TrimSpace(GetStringIfExists(json, "model_family", "unknown")),
-			model:      strings.TrimSpace(model_name),
+			model:      model_name,
 			interface_: strings.TrimSpace(json.Get("device.type").String()),
 			protocol:   strings.TrimSpace(json.Get("device.protocol").String()),
 		},
@@ -113,7 +115,7 @@ func (smart *SMARTctl) Collect() {
 		smart.mineNvmeBytesWritten()
 	}
 	// SCSI, SAS
-	if smart.device.interface_ == "scsi" {
+	if smart.device.interface_ == "scsi" || smart.device.interface_ == "sas" {
 		smart.mineSCSIGrownDefectList()
 		smart.mineSCSIErrorCounterLog()
 		smart.mineSCSIBytesRead()
