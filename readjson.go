@@ -64,7 +64,32 @@ func readFakeSMARTctl(logger *slog.Logger, device Device) gjson.Result {
 func readSMARTctl(logger *slog.Logger, device Device, wg *sync.WaitGroup) {
 	defer wg.Done()
 	start := time.Now()
-	var smartctlArgs = []string{"--json", "--info", "--health", "--attributes", "--tolerance=verypermissive", "--nocheck=" + *smartctlPowerModeCheck, "--format=brief", "--log=error", "--log=selftest", "--log=devstat", "--log=sataphy", "--log=scterc", "--log=defects", "--device=" + device.Type, device.Name}
+	// smartctl 7.5: log options are transport-specific.
+	//   ATA/SATA only : --log=devstat, --log=sataphy, --log=scterc
+	//   SCSI/SAS only : --log=defects (populates scsi_pending_defects.count)
+	//   Common        : --log=error, --log=selftest
+	// Applying ATA-only logs to a SCSI device causes non-zero smartctl exit_status
+	// bits and noisy messages, so we branch on device.Type.
+	baseType := strings.ToLower(strings.SplitN(device.Type, ",", 2)[0])
+	isSCSI := baseType == "scsi" || baseType == "sas"
+	isNVMe := baseType == "nvme"
+
+	smartctlArgs := []string{
+		"--json", "--info", "--health", "--attributes",
+		"--tolerance=verypermissive",
+		"--nocheck=" + *smartctlPowerModeCheck,
+		"--format=brief",
+		"--log=error", "--log=selftest",
+	}
+	if !isSCSI && !isNVMe {
+		// ATA / SATA
+		smartctlArgs = append(smartctlArgs,
+			"--log=devstat", "--log=sataphy", "--log=scterc")
+	}
+	if isSCSI {
+		smartctlArgs = append(smartctlArgs, "--log=defects")
+	}
+	smartctlArgs = append(smartctlArgs, "--device="+device.Type, device.Name)
 
 	logger.Debug("Calling smartctl with args", "args", strings.Join(smartctlArgs, " "))
 	out, err := exec.Command(*smartctlPath, smartctlArgs...).Output()
