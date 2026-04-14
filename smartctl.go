@@ -761,12 +761,14 @@ func (smart *SMARTctl) mineSCSIErrorCounterLog() {
 }
 
 func (smart *SMARTctl) mineSCSIPercentageUsedEndurance() {
+	// smartctl 7.5: top-level integer field
+	// e.g. "scsi_percentage_used_endurance_indicator": 5
 	pue := smart.json.Get("scsi_percentage_used_endurance_indicator")
 	if pue.Exists() {
 		smart.ch <- prometheus.MustNewConstMetric(
 			metricSCSIPercentageUsedEndurance,
 			prometheus.GaugeValue,
-			pue.Get("percentage_used_endurance_indicator").Float(),
+			pue.Float(),
 			smart.device.device,
 			smart.device.serial,
 			smart.device.model,
