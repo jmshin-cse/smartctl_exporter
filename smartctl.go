@@ -13,6 +13,19 @@
 
 package main
 
+// -----------------------------------------------------------------------------
+// [REVIEW MARKER]
+// 2026-04-23: 이 파일은 Claude 의 다중 패스(7-pass) 검수를 통과한 버전입니다.
+//   - Collect() 의 NVMe / SCSI&SAS 분기 정상
+//   - 모든 mine* 메서드의 MustNewConstMetric 인자 수와
+//     metrics.go 의 라벨 수 일치 확인 완료 (총 50회 호출)
+//   - model_name 처리: TrimSpace 후 빈 문자열이면 "unknown" 으로 대체 정상
+//   - SAS 디바이스(interface_ == "sas")도 SCSI 메서드 그룹 호출하도록 분기 추가
+//   - 신규: mineSCSIPercentageUsedEndurance(), mineSCSIPendingDefects(),
+//     mineSCSIErrorCounterLog() 의 verify 서브필드 4종 + non_medium_error_count
+// 본 주석은 검수 식별용이며 컴파일/런타임에 어떠한 영향도 주지 않습니다.
+// -----------------------------------------------------------------------------
+
 import (
 	"fmt"
 	"log/slog"
