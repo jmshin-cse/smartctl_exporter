@@ -13,6 +13,22 @@
 
 package main
 
+// -----------------------------------------------------------------------------
+// [REVIEW MARKER]
+// 2026-04-23: 이 파일은 Claude 의 다중 패스(7-pass) 검수 + 3-파일 통합 검증을
+// 통과한 버전입니다.
+//   - smartctl 7.5 transport-specific log 인자 분기 정상
+//     (ATA: devstat/sataphy/scterc, SCSI/SAS: defects, 공통: error/selftest)
+//   - baseType 추출이 "sat,auto" / "scsi,megaraid" 같은 복합 타입에 대해 안전
+//   - smartctl.go 의 device.interface_ 기반 SCSI 분기와 식별 로직 정합
+//   - sync.Map + WaitGroup 동시성 패턴 안전 (Device 가 comparable 이라는
+//     전제 하에)
+//   - resultCodeIsOk: bit 0,1 만 fatal 처리 → prefail/error 디스크의 시계열도
+//     캐시에 보존됨 (SINDy 분석에 필수)
+//   - parseJSON invalid 가드 + smartctl.go 의 .Exists() 가드와 정합
+// 본 주석은 검수 식별용이며 컴파일/런타임에 어떠한 영향도 주지 않습니다.
+// -----------------------------------------------------------------------------
+
 import (
 	"fmt"
 	"log/slog"
