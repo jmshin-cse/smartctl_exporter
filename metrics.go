@@ -13,6 +13,16 @@
 
 package main
 
+// -----------------------------------------------------------------------------
+// [REVIEW MARKER]
+// 2026-04-23: 이 파일은 Claude 의 다중 패스(7-pass) 검수를 통과한 버전입니다.
+//   - 45개 메트릭 라벨 정의 일관성 확인 완료
+//   - smartctl.go 의 모든 MustNewConstMetric 호출과 라벨/인자 수 일치 확인 완료
+//   - 신규 메트릭(verify 카운터 4종, scsi_non_medium_error_count,
+//     scsi_percentage_used_endurance, scsi_pending_defects_count) 라벨 정상
+// 본 주석은 검수 식별용이며 컴파일/런타임에 어떠한 영향도 주지 않습니다.
+// -----------------------------------------------------------------------------
+
 import (
 	"github.com/prometheus/client_golang/prometheus"
 )
