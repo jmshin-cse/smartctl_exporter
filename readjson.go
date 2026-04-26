@@ -26,6 +26,16 @@ package main
 //   - resultCodeIsOk: bit 0,1 만 fatal 처리 → prefail/error 디스크의 시계열도
 //     캐시에 보존됨 (SINDy 분석에 필수)
 //   - parseJSON invalid 가드 + smartctl.go 의 .Exists() 가드와 정합
+//
+// 2026-04-27: RAID 컨트롤러 뒤 디스크의 메트릭 누락 이슈 수정.
+//   - 기존 로직: device.Type 의 baseType 이 "scsi"/"sas" 일 때만 --log=defects
+//     추가 → "megaraid,N", "3ware,N", "aacraid,N,L,ID", "cciss,N", "areca,N",
+//     "hpsa,N" 등 RAID wrapper 뒤의 SAS HDD 에서 scsi_pending_defects_count
+//     메트릭이 누락되는 버그.
+//   - 수정 후: 디바이스 타입을 4분류(NVMe/명시적 ATA/명시적 SCSI/모호) 로
+//     판정하고, "모호" (auto, megaraid, 3ware 등) 케이스에는 ATA 로그와
+//     SCSI 로그를 모두 추가. --tolerance=verypermissive 가 무관한 로그를
+//     흡수하므로 데이터 손실 없이 모든 RAID 환경에서 pending_defects 수집.
 // 본 주석은 검수 식별용이며 컴파일/런타임에 어떠한 영향도 주지 않습니다.
 // -----------------------------------------------------------------------------
 
@@ -84,11 +94,27 @@ func readSMARTctl(logger *slog.Logger, device Device, wg *sync.WaitGroup) {
 	//   ATA/SATA only : --log=devstat, --log=sataphy, --log=scterc
 	//   SCSI/SAS only : --log=defects (populates scsi_pending_defects.count)
 	//   Common        : --log=error, --log=selftest
-	// Applying ATA-only logs to a SCSI device causes non-zero smartctl exit_status
-	// bits and noisy messages, so we branch on device.Type.
+	//
+	// device.Type 4분류 + RAID 처리:
+	//   isNVMe        — "nvme", "nvme,N"
+	//   isExplicitATA — "sat", "ata", "sat+megaraid,N", "sat+jmb39x,N" 등
+	//                   (sat/ata prefix → 확실히 SATA underlying)
+	//   isExplicitSCSI— "scsi", "sas" (직결)
+	//   ambiguous     — "auto", "megaraid,N", "3ware,N", "areca,N", "cciss,N",
+	//                   "aacraid,N,L,ID", "hpsa,N" 등 RAID wrapper
+	//                   → underlying 디스크 타입을 알 수 없음
+	//
+	// ambiguous 케이스에는 ATA 로그와 SCSI 로그를 모두 추가한다.
+	// smartctl 은 underlying 디스크가 지원하지 않는 로그를 무시하고
+	// (--tolerance=verypermissive 와 결합) exit_status bit 2 만 set 함.
+	// resultCodeIsOk 가 bit 2 를 warn-only 로 처리하므로 데이터 손실 없음.
+	// 이로 인해 SAS-via-MegaRAID 같은 케이스에서도 scsi_pending_defects_count
+	// 가 정상 수집된다.
 	baseType := strings.ToLower(strings.SplitN(device.Type, ",", 2)[0])
-	isSCSI := baseType == "scsi" || baseType == "sas"
 	isNVMe := baseType == "nvme"
+	isExplicitATA := strings.HasPrefix(baseType, "sat") || strings.HasPrefix(baseType, "ata")
+	isExplicitSCSI := baseType == "scsi" || baseType == "sas"
+	isAmbiguous := !isNVMe && !isExplicitATA && !isExplicitSCSI
 
 	smartctlArgs := []string{
 		"--json", "--info", "--health", "--attributes",
@@ -97,12 +123,13 @@ func readSMARTctl(logger *slog.Logger, device Device, wg *sync.WaitGroup) {
 		"--format=brief",
 		"--log=error", "--log=selftest",
 	}
-	if !isSCSI && !isNVMe {
-		// ATA / SATA
+	if isExplicitATA || isAmbiguous {
+		// ATA/SATA logs (확실한 ATA + 모호 케이스)
 		smartctlArgs = append(smartctlArgs,
 			"--log=devstat", "--log=sataphy", "--log=scterc")
 	}
-	if isSCSI {
+	if isExplicitSCSI || isAmbiguous {
+		// SCSI/SAS log (확실한 SCSI/SAS + 모호 케이스 — RAID 뒤 SAS 보장)
 		smartctlArgs = append(smartctlArgs, "--log=defects")
 	}
 	smartctlArgs = append(smartctlArgs, "--device="+device.Type, device.Name)
