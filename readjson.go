@@ -36,6 +36,25 @@ package main
 //     판정하고, "모호" (auto, megaraid, 3ware 등) 케이스에는 ATA 로그와
 //     SCSI 로그를 모두 추가. --tolerance=verypermissive 가 무관한 로그를
 //     흡수하므로 데이터 손실 없이 모든 RAID 환경에서 pending_defects 수집.
+//
+// 2026-05-08: SAS/SCSI 최대 데이터 노출 — `smartctl -x -j` 등가 확장.
+//   - 기존: SCSI/SAS 분기에 --log=defects 만 추가
+//   - 변경: --log=background (background scan log),
+//           --log=sasphy   (SAS PHY event counters: invalid_dword_count,
+//                           running_disparity_error_count,
+//                           loss_of_dword_synchronization_count,
+//                           phy_reset_problem_count),
+//           --log=ssd      (SSD endurance/wear, 일부 SAS-SSD 만 적용),
+//           --log=xerror   (extended error counter log — read/write/verify
+//                           gigabytes_processed, total_errors_corrected,
+//                           correction_algorithm_invocations 등 추가 필드),
+//           --log=xselftest(extended self-test log)
+//     모두 SCSI/SAS 또는 ambiguous 케이스에 추가.
+//   - --tolerance=verypermissive 가 미지원 로그를 흡수하므로 SATA 디스크가
+//     ambiguous 케이스로 분류되어도 데이터 손실 없음.
+//   - 효과: SAS PHY 카운터 4종, scsi_background_scan, lifetime cycle
+//     counter (load/unload, specified count over lifetime) 등 SINDy 분석에
+//     유용한 카운터들이 모두 노출됨.
 // 본 주석은 검수 식별용이며 컴파일/런타임에 어떠한 영향도 주지 않습니다.
 // -----------------------------------------------------------------------------
 
@@ -129,8 +148,17 @@ func readSMARTctl(logger *slog.Logger, device Device, wg *sync.WaitGroup) {
 			"--log=devstat", "--log=sataphy", "--log=scterc")
 	}
 	if isExplicitSCSI || isAmbiguous {
-		// SCSI/SAS log (확실한 SCSI/SAS + 모호 케이스 — RAID 뒤 SAS 보장)
-		smartctlArgs = append(smartctlArgs, "--log=defects")
+		// SCSI/SAS logs (확실한 SCSI/SAS + 모호 케이스 — RAID 뒤 SAS 보장)
+		// `smartctl -x -j` 등가 확장: defects + background + sasphy + ssd
+		// + xerror + xselftest. SAS HDD 의 최대 데이터를 노출한다.
+		smartctlArgs = append(smartctlArgs,
+			"--log=defects",
+			"--log=background",
+			"--log=sasphy",
+			"--log=ssd",
+			"--log=xerror",
+			"--log=xselftest",
+		)
 	}
 	smartctlArgs = append(smartctlArgs, "--device="+device.Type, device.Name)
 
