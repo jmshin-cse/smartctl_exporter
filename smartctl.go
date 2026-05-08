@@ -23,6 +23,14 @@ package main
 //   - SAS 디바이스(interface_ == "sas")도 SCSI 메서드 그룹 호출하도록 분기 추가
 //   - 신규: mineSCSIPercentageUsedEndurance(), mineSCSIPendingDefects(),
 //     mineSCSIErrorCounterLog() 의 verify 서브필드 4종 + non_medium_error_count
+//
+// 2026-05-08: SAS/SCSI 최대 데이터 노출 — `smartctl -x` 등가 마이닝 추가.
+//   - mineSCSIErrorCounterLog() 확장: read/write/verify × {total_errors_corrected,
+//     correction_algorithm_invocations} 6종 + verify_bytes_processed 1종 추가
+//   - 신규 mineSCSISasPhyEvents()       : SAS PHY 카운터 4종 (port/phy 합산)
+//   - 신규 mineSCSIBackgroundScan()     : background scan log 3종
+//   - 신규 mineSCSILifetimeCycles()     : load/unload + specified lifetime 4종
+//   - Collect() 의 SCSI 분기에 4개 신규 mine* 메서드 호출 추가
 // 본 주석은 검수 식별용이며 컴파일/런타임에 어떠한 영향도 주지 않습니다.
 // -----------------------------------------------------------------------------
 
@@ -135,6 +143,10 @@ func (smart *SMARTctl) Collect() {
 		smart.mineSCSIBytesWritten()
 		smart.mineSCSIPercentageUsedEndurance()
 		smart.mineSCSIPendingDefects()
+		// 2026-05-08: smartctl -x 등가 신규 mining
+		smart.mineSCSISasPhyEvents()
+		smart.mineSCSIBackgroundScan()
+		smart.mineSCSILifetimeCycles()
 	}
 }
 
@@ -772,6 +784,259 @@ func (smart *SMARTctl) mineSCSIErrorCounterLog() {
 			smart.device.serial,
 			smart.device.model,
 		)
+
+		// ----------------------------------------------------------
+		// 2026-05-08: scsi_error_counter_log 확장 필드 (smartctl -x)
+		// total_errors_corrected, correction_algorithm_invocations:
+		// 각 direction (read/write/verify) 마다 노출
+		// ----------------------------------------------------------
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricReadTotalErrorsCorrected,
+			prometheus.GaugeValue,
+			SCSIHealth.Get("read.total_errors_corrected").Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricWriteTotalErrorsCorrected,
+			prometheus.GaugeValue,
+			SCSIHealth.Get("write.total_errors_corrected").Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricVerifyTotalErrorsCorrected,
+			prometheus.GaugeValue,
+			SCSIHealth.Get("verify.total_errors_corrected").Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricReadCorrectionAlgorithmInvocations,
+			prometheus.GaugeValue,
+			SCSIHealth.Get("read.correction_algorithm_invocations").Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricWriteCorrectionAlgorithmInvocations,
+			prometheus.GaugeValue,
+			SCSIHealth.Get("write.correction_algorithm_invocations").Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricVerifyCorrectionAlgorithmInvocations,
+			prometheus.GaugeValue,
+			SCSIHealth.Get("verify.correction_algorithm_invocations").Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+		// verify gigabytes_processed × 1e9  (read/write 는 bytes_read/written 에서 노출)
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricVerifyBytesProcessed,
+			prometheus.CounterValue,
+			SCSIHealth.Get("verify.gigabytes_processed").Float()*1e9,
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+}
+
+// mineSCSISasPhyEvents — SAS PHY event counters (port/phy 합산)
+//
+// JSON 구조 (smartctl 7.5, --log=sasphy):
+//   "scsi_sas_port_0": {
+//     "phy_0": {
+//       "invalid_dword_count": N,
+//       "running_disparity_error_count": N,
+//       "loss_of_dword_synchronization_count": N,
+//       "phy_reset_problem_count": N
+//     },
+//     "phy_1": { ... }
+//   },
+//   "scsi_sas_port_1": { ... }
+//
+// 디스크마다 port/phy 수가 다르므로 (single-port: port_0 만, dual-port: 0/1
+// 둘 다, multi-phy: phy_0/1/2/3 등), 모든 scsi_sas_port_<N>.phy_<M> 을
+// iterate 하며 카운터를 합산한다. Empty case 면 0 이 emit.
+func (smart *SMARTctl) mineSCSISasPhyEvents() {
+	var sumInvalidDword, sumRunDisparity, sumLossSync, sumPhyResetProblem float64
+	phyFound := false
+
+	// 모든 scsi_sas_port_* 키 탐색
+	smart.json.ForEach(func(key, val gjson.Result) bool {
+		k := key.String()
+		if !strings.HasPrefix(k, "scsi_sas_port_") {
+			return true
+		}
+		// 포트 안의 모든 phy_* 키
+		val.ForEach(func(pkey, pval gjson.Result) bool {
+			pk := pkey.String()
+			if !strings.HasPrefix(pk, "phy_") {
+				return true
+			}
+			phyFound = true
+			sumInvalidDword += pval.Get("invalid_dword_count").Float()
+			sumRunDisparity += pval.Get("running_disparity_error_count").Float()
+			sumLossSync += pval.Get("loss_of_dword_synchronization_count").Float()
+			sumPhyResetProblem += pval.Get("phy_reset_problem_count").Float()
+			return true
+		})
+		return true
+	})
+
+	if !phyFound {
+		return
+	}
+	smart.ch <- prometheus.MustNewConstMetric(
+		metricSCSISasPhyInvalidDwordCount,
+		prometheus.CounterValue,
+		sumInvalidDword,
+		smart.device.device,
+		smart.device.serial,
+		smart.device.model,
+	)
+	smart.ch <- prometheus.MustNewConstMetric(
+		metricSCSISasPhyRunningDisparityErrorCount,
+		prometheus.CounterValue,
+		sumRunDisparity,
+		smart.device.device,
+		smart.device.serial,
+		smart.device.model,
+	)
+	smart.ch <- prometheus.MustNewConstMetric(
+		metricSCSISasPhyLossOfDwordSyncCount,
+		prometheus.CounterValue,
+		sumLossSync,
+		smart.device.device,
+		smart.device.serial,
+		smart.device.model,
+	)
+	smart.ch <- prometheus.MustNewConstMetric(
+		metricSCSISasPhyResetProblemCount,
+		prometheus.CounterValue,
+		sumPhyResetProblem,
+		smart.device.device,
+		smart.device.serial,
+		smart.device.model,
+	)
+}
+
+// mineSCSIBackgroundScan — SCSI background scan log (--log=background)
+//
+// JSON 구조 (smartctl 7.5):
+//   "scsi_background_scan": {
+//     "status": { "code": 0, "string": "..." },
+//     "accumulated_power_on_minutes": N,
+//     "background_scans_performed": N,
+//     "background_medium_scans_performed": N
+//   }
+func (smart *SMARTctl) mineSCSIBackgroundScan() {
+	bs := smart.json.Get("scsi_background_scan")
+	if !bs.Exists() {
+		return
+	}
+	if v := bs.Get("background_scans_performed"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricSCSIBackgroundScansPerformed,
+			prometheus.CounterValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+	if v := bs.Get("background_medium_scans_performed"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricSCSIBackgroundMediumScansPerformed,
+			prometheus.CounterValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+	if v := bs.Get("status.code"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricSCSIBackgroundScanStatusCode,
+			prometheus.GaugeValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+}
+
+// mineSCSILifetimeCycles — start_stop_cycle_counter 의 추가 lifetime 필드.
+// accumulated_start_stop_cycles 는 power_cycle_count 로 이미 노출됨.
+//
+// JSON 구조 (smartctl 7.5):
+//   "scsi_start_stop_cycle_counter": {
+//     "year_of_manufacture": "2019",
+//     "specified_cycle_count_over_device_lifetime": N,
+//     "accumulated_start_stop_cycles": N,
+//     "specified_load_unload_count_over_device_lifetime": N,
+//     "accumulated_load_unload_cycles": N
+//   }
+//
+// 일부 필드는 string ("2019") 인 경우가 있어 ParseFloat 로 안전 처리.
+func (smart *SMARTctl) mineSCSILifetimeCycles() {
+	sc := smart.json.Get("scsi_start_stop_cycle_counter")
+	if !sc.Exists() {
+		return
+	}
+	if v := sc.Get("accumulated_load_unload_cycles"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricSCSIAccumulatedLoadUnloadCycles,
+			prometheus.CounterValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+	if v := sc.Get("specified_load_unload_count_over_device_lifetime"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricSCSISpecifiedLoadUnloadCount,
+			prometheus.GaugeValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+	if v := sc.Get("specified_cycle_count_over_device_lifetime"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricSCSISpecifiedCycleCount,
+			prometheus.GaugeValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+	if v := sc.Get("year_of_manufacture"); v.Exists() {
+		// year 은 string "2019" 또는 int 일 수 있음. gjson.Float() 가 양쪽
+		// 안전 처리. parse 실패 시 0 이 되므로 nonzero 일 때만 emit.
+		if y := v.Float(); y > 0 {
+			smart.ch <- prometheus.MustNewConstMetric(
+				metricSCSIYearOfManufacture,
+				prometheus.GaugeValue,
+				y,
+				smart.device.device,
+				smart.device.serial,
+				smart.device.model,
+			)
+		}
 	}
 }
 
