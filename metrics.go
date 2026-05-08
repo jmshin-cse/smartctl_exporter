@@ -20,6 +20,20 @@ package main
 //   - smartctl.go 의 모든 MustNewConstMetric 호출과 라벨/인자 수 일치 확인 완료
 //   - 신규 메트릭(verify 카운터 4종, scsi_non_medium_error_count,
 //     scsi_percentage_used_endurance, scsi_pending_defects_count) 라벨 정상
+//
+// 2026-05-08: SAS/SCSI 최대 데이터 노출용 신규 메트릭 18종 추가.
+//   error counter log 확장 (6): read/write/verify × {total_errors_corrected,
+//                                  correction_algorithm_invocations}
+//   verify gigabytes_processed (1)  — read/write 는 bytes_read/written 으로 이미 노출
+//   SAS PHY event counters (4)      — port/phy 합산값
+//   background scan log (3)         — scans_performed, medium_scans_performed,
+//                                       status_code
+//   lifetime cycles (4)             — accumulated_load_unload_cycles,
+//                                       specified_load_unload_count_over_lifetime,
+//                                       specified_cycle_count_over_lifetime,
+//                                       year_of_manufacture
+//   모든 신규 메트릭 라벨: device, serial_number, model_name (3개) — 기존 SCSI
+//   메트릭과 동일.
 // 본 주석은 검수 식별용이며 컴파일/런타임에 어떠한 영향도 주지 않습니다.
 // -----------------------------------------------------------------------------
 
@@ -497,6 +511,204 @@ var (
 	metricSCSIPendingDefectsCount = prometheus.NewDesc(
 		"smartctl_scsi_pending_defects_count",
 		"SCSI pending defects count",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+
+	// ------------------------------------------------------------------
+	// 2026-05-08: smartctl -x 등가 확장 — SCSI/SAS 추가 메트릭 (18종)
+	// ------------------------------------------------------------------
+
+	// scsi_error_counter_log 확장: read/write/verify × total_errors_corrected
+	metricReadTotalErrorsCorrected = prometheus.NewDesc(
+		"smartctl_read_total_errors_corrected",
+		"SCSI Read Total Errors Corrected (sum of all error correction events)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricWriteTotalErrorsCorrected = prometheus.NewDesc(
+		"smartctl_write_total_errors_corrected",
+		"SCSI Write Total Errors Corrected (sum of all error correction events)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricVerifyTotalErrorsCorrected = prometheus.NewDesc(
+		"smartctl_verify_total_errors_corrected",
+		"SCSI Verify Total Errors Corrected (sum of all error correction events)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+
+	// scsi_error_counter_log 확장: read/write/verify × correction_algorithm_invocations
+	metricReadCorrectionAlgorithmInvocations = prometheus.NewDesc(
+		"smartctl_read_correction_algorithm_invocations",
+		"SCSI Read Correction Algorithm Invocations",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricWriteCorrectionAlgorithmInvocations = prometheus.NewDesc(
+		"smartctl_write_correction_algorithm_invocations",
+		"SCSI Write Correction Algorithm Invocations",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricVerifyCorrectionAlgorithmInvocations = prometheus.NewDesc(
+		"smartctl_verify_correction_algorithm_invocations",
+		"SCSI Verify Correction Algorithm Invocations",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+
+	// scsi_error_counter_log: verify gigabytes processed (bytes 단위로 노출)
+	// read/write 는 bytes_read/bytes_written 으로 이미 노출됨
+	metricVerifyBytesProcessed = prometheus.NewDesc(
+		"smartctl_verify_bytes_processed",
+		"SCSI Verify Bytes Processed (gigabytes_processed × 1e9)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+
+	// SAS PHY event counters (모든 port/phy 합산값)
+	metricSCSISasPhyInvalidDwordCount = prometheus.NewDesc(
+		"smartctl_scsi_sas_phy_invalid_dword_count",
+		"SAS PHY invalid DWORD count (summed across all ports/phys)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricSCSISasPhyRunningDisparityErrorCount = prometheus.NewDesc(
+		"smartctl_scsi_sas_phy_running_disparity_error_count",
+		"SAS PHY running disparity error count (summed across all ports/phys)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricSCSISasPhyLossOfDwordSyncCount = prometheus.NewDesc(
+		"smartctl_scsi_sas_phy_loss_of_dword_sync_count",
+		"SAS PHY loss of DWORD synchronization count (summed across all ports/phys)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricSCSISasPhyResetProblemCount = prometheus.NewDesc(
+		"smartctl_scsi_sas_phy_reset_problem_count",
+		"SAS PHY reset problem count (summed across all ports/phys)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+
+	// SCSI background scan log
+	metricSCSIBackgroundScansPerformed = prometheus.NewDesc(
+		"smartctl_scsi_background_scans_performed",
+		"SCSI background scans performed",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricSCSIBackgroundMediumScansPerformed = prometheus.NewDesc(
+		"smartctl_scsi_background_medium_scans_performed",
+		"SCSI background medium scans performed",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricSCSIBackgroundScanStatusCode = prometheus.NewDesc(
+		"smartctl_scsi_background_scan_status_code",
+		"SCSI background scan status code (0=no scan active)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+
+	// SCSI lifetime cycles (start_stop_cycle_counter 의 추가 필드)
+	// 참고: accumulated_start_stop_cycles 는 power_cycle_count 로 이미 노출됨
+	metricSCSIAccumulatedLoadUnloadCycles = prometheus.NewDesc(
+		"smartctl_scsi_accumulated_load_unload_cycles",
+		"SCSI accumulated head load/unload cycles",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricSCSISpecifiedLoadUnloadCount = prometheus.NewDesc(
+		"smartctl_scsi_specified_load_unload_count_over_lifetime",
+		"SCSI specified head load/unload count over device lifetime (vendor spec)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricSCSISpecifiedCycleCount = prometheus.NewDesc(
+		"smartctl_scsi_specified_cycle_count_over_lifetime",
+		"SCSI specified start-stop cycle count over device lifetime (vendor spec)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricSCSIYearOfManufacture = prometheus.NewDesc(
+		"smartctl_scsi_year_of_manufacture",
+		"SCSI device year of manufacture (4-digit year)",
 		[]string{
 			"device",
 			"serial_number",
