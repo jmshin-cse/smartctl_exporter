@@ -1,0 +1,65 @@
+# syntax=docker/dockerfile:1.6
+# =============================================================================
+# Dockerfile.fullbuild
+# -----------------------------------------------------------------------------
+# Multi-stage build:
+#   1) Go build of this fork's smartctl_exporter binary (in golang:alpine)
+#   2) Final runtime image based on alpine:3.23 with smartmontools 7.5 (apk)
+#
+# Pinning alpine:3.23 avoids the floating `alpine:3` tag drift, which can
+# silently change the smartmontools version (3.18 ships 7.3, 3.21+ ships 7.5).
+#
+# Build:
+#   docker build -f Dockerfile.fullbuild -t smartctl-exporter-fork:latest .
+#
+# Build with custom args:
+#   docker build -f Dockerfile.fullbuild \
+#       --build-arg GO_VERSION=1.25 \
+#       --build-arg ALPINE_VERSION=3.23 \
+#       -t smartctl-exporter-fork:$(date +%F) .
+#
+# Runtime:
+#   docker run -d --name smartctl-exporter \
+#       --privileged \
+#       -v /dev:/dev:ro \
+#       -p 9633:9633 \
+#       smartctl-exporter-fork:latest
+# =============================================================================
+
+ARG GO_VERSION=1.25
+ARG ALPINE_VERSION=3.23
+
+# -----------------------------------------------------------------------------
+# Stage 1: build smartctl_exporter Go binary
+# -----------------------------------------------------------------------------
+FROM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS go-builder
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -trimpath -ldflags="-s -w" \
+        -o /out/smartctl_exporter .
+
+# -----------------------------------------------------------------------------
+# Stage 2: minimal runtime image
+# -----------------------------------------------------------------------------
+FROM alpine:${ALPINE_VERSION}
+
+LABEL org.opencontainers.image.title="smartctl-exporter (jmshin-cse fork)"
+LABEL org.opencontainers.image.description="smartctl_exporter with serial_number label patch on alpine + smartmontools 7.5"
+LABEL org.opencontainers.image.source="https://github.com/jmshin-cse/smartctl_exporter"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+
+# smartmontools 7.5 (alpine 3.23 ships this version)
+RUN apk add --no-cache smartmontools
+
+# smartctl_exporter binary built from this fork
+COPY --from=go-builder /out/smartctl_exporter /bin/smartctl_exporter
+
+EXPOSE 9633
+
+USER root
+ENTRYPOINT ["/bin/smartctl_exporter"]
