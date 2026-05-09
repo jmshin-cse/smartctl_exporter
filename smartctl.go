@@ -1083,16 +1083,18 @@ func (smart *SMARTctl) mineSCSILifetimeCycles() {
 // mineATAPendingDefects — ATA Pending Defects log (ACS-4, log address 0x0Ah)
 //
 // JSON 구조 (smartctl 7.5, --log=defects 가 ATA disk에 적용된 경우):
-//   "ata_pending_defects": {
-//     "count": N,
-//     "table": [{ ... }, ...]
+//   "ata_pending_defects_log": {
+//     "size": 65535,    // log capacity (정적, 보통 65535)
+//     "count": N        // 현재 pending defects 카운터 (이게 우리 metric)
 //   }
 //
-// 2026-05-08-2 (Patch 1): SCSI 와 별도 메트릭 (smartctl_ata_pending_defects_count).
-// 디스크가 ACS-4 미지원이거나 SAS/NVMe 인 경우 ata_pending_defects 키가 없으므로
-// .Exists() 가드로 자동 skip.
+// 2026-05-08-2 (Patch 1) + 2026-05-09 fix: 실제 smartctl 7.5 출력 키는
+// "ata_pending_defects_log" (suffix _log 포함). 초기 작성 시 키 추측이
+// 틀렸던 것을 jmnas 의 Seagate IronWolf 12TB raw JSON 으로 확인 후 수정.
+// 디스크가 ACS-4 미지원이거나 SAS/NVMe 인 경우 키 자체가 없어 .Exists()
+// 가드로 자동 skip.
 func (smart *SMARTctl) mineATAPendingDefects() {
-	pd := smart.json.Get("ata_pending_defects")
+	pd := smart.json.Get("ata_pending_defects_log")
 	if !pd.Exists() {
 		return
 	}
