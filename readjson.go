@@ -63,6 +63,15 @@ package main
 //   - 기존엔 SCSI 분기에서만 추가됐었는데, ATA 분기에도 추가하여
 //     ata_pending_defects.count → metricATAPendingDefectsCount 로 노출.
 //   - 미지원 disk(구형 ATA)는 --tolerance=verypermissive 가 흡수하므로 안전.
+//
+// 2026-05-08-3: SCSI 측에 --log=envrep 추가 (Patch 4)
+//   - smartmontools 7.5 신설 옵션. SCSI Environmental Reports log page (0x0D)
+//     를 출력하여 lifetime_max_temperature / lifetime_min_temperature 등
+//     thermal stress 누적 지표를 노출.
+//   - mineSCSIEnvironmentalReports() 가 scsi_environmental_reports JSON 을
+//     읽으려면 본 옵션이 필수.
+//   - SCSI 미지원 케이스 (예: ATA 디스크가 ambiguous 분류)는
+//     --tolerance=verypermissive 가 흡수.
 // 본 주석은 검수 식별용이며 컴파일/런타임에 어떠한 영향도 주지 않습니다.
 // -----------------------------------------------------------------------------
 
@@ -158,13 +167,16 @@ func readSMARTctl(logger *slog.Logger, device Device, wg *sync.WaitGroup) {
 	if isExplicitSCSI || isAmbiguous {
 		// SCSI/SAS logs (확실한 SCSI/SAS + 모호 케이스 — RAID 뒤 SAS 보장)
 		// `smartctl -x -j` 등가 확장: background + sasphy + ssd
-		// + xerror + xselftest. SAS HDD 의 최대 데이터를 노출한다.
+		// + xerror + xselftest + envrep. SAS HDD 의 최대 데이터를 노출한다.
+		// 2026-05-08-3 (Patch 4): --log=envrep 추가 — SCSI Environmental
+		// Reports log page (0x0D, smartmontools 7.5 신규 옵션).
 		smartctlArgs = append(smartctlArgs,
 			"--log=background",
 			"--log=sasphy",
 			"--log=ssd",
 			"--log=xerror",
 			"--log=xselftest",
+			"--log=envrep",
 		)
 	}
 	// --log=defects: ATA(ACS-4) 및 SCSI(SBC-3) 양쪽 transport 모두 지원.
