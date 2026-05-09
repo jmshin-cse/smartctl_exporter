@@ -31,6 +31,22 @@ package main
 //   - 신규 mineSCSIBackgroundScan()     : background scan log 3종
 //   - 신규 mineSCSILifetimeCycles()     : load/unload + specified lifetime 4종
 //   - Collect() 의 SCSI 분기에 4개 신규 mine* 메서드 호출 추가
+//
+// 2026-05-08-2: SATA + NVMe 추가 데이터 노출 (Patch 1+2).
+//   - 신규 mineATAPendingDefects()      : ata_pending_defects.count (ACS-4)
+//                                          Collect() 에서 무조건 호출 (Exists 가드)
+//   - 신규 mineNvmeAdvancedHealthInfo() : NVMe SMART/Health log 의 추가 8 필드
+//                                          host_reads/writes, controller_busy_time,
+//                                          unsafe_shutdowns, warning_temp_time,
+//                                          critical_comp_time, thermal_temp_1/2_*
+//                                          Collect() 의 NVMe 분기에서 호출.
+//
+// 2026-05-08-3: smartctl 7.5 카운터/게이지 ~95% 노출 (Patch 3+4+5).
+//   - mineDeviceErrorLog() 확장        : error_count_total 추가 emit
+//   - 신규 mineDeviceLastSelfTestHours(): table[0].lifetime_hours (최근 자가검사 시점)
+//   - 신규 mineSCSIEnvironmentalReports(): scsi_environmental_reports lifetime min/max
+//   - mineNvmeAdvancedHealthInfo() 확장: thermal_temp_1/2_total_time 추가
+//   - 신규 mineNvmeTemperatureSensors(): per-sensor 온도 (sensor_id 라벨)
 // 본 주석은 검수 식별용이며 컴파일/런타임에 어떠한 영향도 주지 않습니다.
 // -----------------------------------------------------------------------------
 
@@ -134,6 +150,10 @@ func (smart *SMARTctl) Collect() {
 		smart.mineNvmeNumErrLogEntries()
 		smart.mineNvmeBytesRead()
 		smart.mineNvmeBytesWritten()
+		// 2026-05-08-2 (Patch 2): NVMe SMART/Health log 추가 8 필드
+		smart.mineNvmeAdvancedHealthInfo()
+		// 2026-05-08-3 (Patch 5): NVMe per-sensor 온도
+		smart.mineNvmeTemperatureSensors()
 	}
 	// SCSI, SAS
 	if smart.device.interface_ == "scsi" || smart.device.interface_ == "sas" {
@@ -147,7 +167,14 @@ func (smart *SMARTctl) Collect() {
 		smart.mineSCSISasPhyEvents()
 		smart.mineSCSIBackgroundScan()
 		smart.mineSCSILifetimeCycles()
+		// 2026-05-08-3 (Patch 4): SCSI environmental reports (lifetime temp)
+		smart.mineSCSIEnvironmentalReports()
 	}
+	// 2026-05-08-2 (Patch 1): ATA pending defects (ACS-4)
+	// transport 분기 밖에서 무조건 호출 — Exists 가드로 ATA 디스크에서만 emit.
+	smart.mineATAPendingDefects()
+	// 2026-05-08-3 (Patch 3): 최근 self-test 시점 (ATA/NVMe 모두 가능)
+	smart.mineDeviceLastSelfTestHours()
 }
 
 func (smart *SMARTctl) mineExitStatus() {
@@ -623,6 +650,19 @@ func (smart *SMARTctl) mineDeviceErrorLog() {
 			smart.device.model,
 			logType,
 		)
+		// 2026-05-08-3 (Patch 3): error_count_total — lifetime ATA error sum.
+		// 일부 log 변종(extended)에는 미존재할 수 있어 .Exists() 가드.
+		if v := status.Get("error_count_total"); v.Exists() {
+			smart.ch <- prometheus.MustNewConstMetric(
+				metricDeviceErrorLogTotal,
+				prometheus.CounterValue,
+				v.Float(),
+				smart.device.device,
+				smart.device.serial,
+				smart.device.model,
+				logType,
+			)
+		}
 	}
 }
 
@@ -1038,6 +1078,302 @@ func (smart *SMARTctl) mineSCSILifetimeCycles() {
 			)
 		}
 	}
+}
+
+// mineATAPendingDefects — ATA Pending Defects log (ACS-4, log address 0x0Ah)
+//
+// JSON 구조 (smartctl 7.5, --log=defects 가 ATA disk에 적용된 경우):
+//   "ata_pending_defects": {
+//     "count": N,
+//     "table": [{ ... }, ...]
+//   }
+//
+// 2026-05-08-2 (Patch 1): SCSI 와 별도 메트릭 (smartctl_ata_pending_defects_count).
+// 디스크가 ACS-4 미지원이거나 SAS/NVMe 인 경우 ata_pending_defects 키가 없으므로
+// .Exists() 가드로 자동 skip.
+func (smart *SMARTctl) mineATAPendingDefects() {
+	pd := smart.json.Get("ata_pending_defects")
+	if !pd.Exists() {
+		return
+	}
+	if c := pd.Get("count"); c.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricATAPendingDefectsCount,
+			prometheus.GaugeValue,
+			c.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+}
+
+// mineNvmeAdvancedHealthInfo — NVMe SMART/Health Information Log 의 추가 필드.
+//
+// 기존 mineNvme* 함수들은 percentage_used / available_spare / data_units_*
+// 등 핵심 필드만 노출. 본 함수는 그 외 SINDy 분석에 유용한 8개 필드 emit.
+//
+// JSON 구조 (smartctl 7.5):
+//   "nvme_smart_health_information_log": {
+//     "host_reads": N,
+//     "host_writes": N,
+//     "controller_busy_time": N,        // 분 단위
+//     "unsafe_shutdowns": N,
+//     "warning_temp_time": N,           // 분 단위
+//     "critical_comp_time": N,          // 분 단위
+//     "thermal_temp_1_transition_count": N,
+//     "thermal_temp_2_transition_count": N,
+//     ...
+//   }
+//
+// 2026-05-08-2 (Patch 2): 모든 필드는 .Exists() 로 가드 — 일부 NVMe 컨트롤러는
+// 표준 SMART log 의 sub-field 일부를 0/미지원으로 둠. 그런 케이스도 안전.
+func (smart *SMARTctl) mineNvmeAdvancedHealthInfo() {
+	log := smart.json.Get("nvme_smart_health_information_log")
+	if !log.Exists() {
+		return
+	}
+
+	// host_reads / host_writes — 호스트 명령 횟수 (data_units_* 와 별도)
+	if v := log.Get("host_reads"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricNvmeHostReads,
+			prometheus.CounterValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+	if v := log.Get("host_writes"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricNvmeHostWrites,
+			prometheus.CounterValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+
+	// controller_busy_time — 분 단위
+	if v := log.Get("controller_busy_time"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricNvmeControllerBusyTime,
+			prometheus.CounterValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+
+	// unsafe_shutdowns — power loss 이벤트
+	if v := log.Get("unsafe_shutdowns"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricNvmeUnsafeShutdowns,
+			prometheus.CounterValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+
+	// warning_temp_time / critical_comp_time — 분 단위
+	if v := log.Get("warning_temp_time"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricNvmeWarningTempTime,
+			prometheus.CounterValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+	if v := log.Get("critical_comp_time"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricNvmeCriticalCompTime,
+			prometheus.CounterValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+
+	// thermal_temp_{1,2}_transition_count — controller throttling 이벤트
+	if v := log.Get("thermal_temp_1_transition_count"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricNvmeThermalTemp1TransitionCount,
+			prometheus.CounterValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+	if v := log.Get("thermal_temp_2_transition_count"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricNvmeThermalTemp2TransitionCount,
+			prometheus.CounterValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+
+	// 2026-05-08-3 (Patch 5): thermal_temp_{1,2}_total_time — transition_count 의 짝.
+	// 누적 thermal management 적용 시간 (분 단위). thermal stress 누적 지표.
+	if v := log.Get("thermal_temp_1_total_time"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricNvmeThermalTemp1TotalTime,
+			prometheus.CounterValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+	if v := log.Get("thermal_temp_2_total_time"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricNvmeThermalTemp2TotalTime,
+			prometheus.CounterValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+}
+
+// mineDeviceLastSelfTestHours — table[0] 의 lifetime_hours 추출.
+//
+// JSON 구조 (smartctl 7.5):
+//   "ata_smart_self_test_log": {
+//     "standard": {
+//       "table": [
+//         {"lifetime_hours": N, "type": {...}, ...},   // table[0] = 가장 최근
+//         ...
+//       ]
+//     },
+//     "extended": { ... }
+//   }
+//
+// 2026-05-08-3 (Patch 3): 가장 최근 self-test 가 디스크 lifetime 의 어느 시점에
+// 진행되었는지 추적. SINDy 분석 시 self-test 빈도 / 마지막 OK 이후 경과
+// 시간을 feature 로 사용 가능. Self-test 가 한 번도 없으면 table 이 비어
+// table[0] 도 없으므로 .Exists() 가드.
+func (smart *SMARTctl) mineDeviceLastSelfTestHours() {
+	for logType, status := range smart.json.Get("ata_smart_self_test_log").Map() {
+		// table[0] = most recent entry (smartmontools convention)
+		if v := status.Get("table.0.lifetime_hours"); v.Exists() {
+			smart.ch <- prometheus.MustNewConstMetric(
+				metricDeviceLastSelfTestHours,
+				prometheus.GaugeValue,
+				v.Float(),
+				smart.device.device,
+				smart.device.serial,
+				smart.device.model,
+				logType,
+			)
+		}
+	}
+}
+
+// mineSCSIEnvironmentalReports — SCSI Environmental Reporting log (page 0x0d).
+//
+// JSON 구조 (smartctl 7.5):
+//   "scsi_environmental_reports": {
+//     "current_temperature": N,
+//     "lifetime_max_temperature": N,
+//     "lifetime_min_temperature": N,
+//     "max_temperature_since_power_on": N,
+//     "min_temperature_since_power_on": N,
+//     "max_relative_humidity": N,        // 일부 enterprise drive 만
+//     "min_relative_humidity": N
+//   }
+//
+// 2026-05-08-3 (Patch 4): mineTemperatures() 가 현재 온도(top-level temperature.*)
+// 만 잡으므로 lifetime min/max 는 별도 노출. SINDy 분석 시 누적 thermal stress
+// (lifetime_max - 현재) 등의 feature 사용 가능.
+//
+// 키 명명은 vendor / smartmontools 버전에 따라 변형이 있어 .Exists() 가드만 사용.
+// 미지원 drive 는 자동 skip.
+func (smart *SMARTctl) mineSCSIEnvironmentalReports() {
+	env := smart.json.Get("scsi_environmental_reports")
+	if !env.Exists() {
+		return
+	}
+	if v := env.Get("lifetime_max_temperature"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricSCSILifetimeMaxTemperature,
+			prometheus.GaugeValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+	if v := env.Get("lifetime_min_temperature"); v.Exists() {
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricSCSILifetimeMinTemperature,
+			prometheus.GaugeValue,
+			v.Float(),
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+		)
+	}
+}
+
+// mineNvmeTemperatureSensors — NVMe per-sensor 온도 (최대 8개 센서).
+//
+// JSON 구조 (smartctl 7.5):
+//   "nvme_smart_health_information_log": {
+//     "temperature_sensors": [38, 40, 42, ...]      // 정수 배열 (Celsius)
+//                                                     // 또는
+//     "temperature_sensors": [
+//        {"sensor": 1, "temperature": 38},
+//        {"sensor": 2, "temperature": 40}
+//     ]
+//   }
+//
+// 2026-05-08-3 (Patch 5): smartmontools 버전/출력 변형 대응 — 두 형식 모두 처리.
+// 0 인 센서(미장착)는 skip. sensor_id 라벨 (1-based) 로 다중 센서 구분.
+func (smart *SMARTctl) mineNvmeTemperatureSensors() {
+	sensors := smart.json.Get("nvme_smart_health_information_log.temperature_sensors")
+	if !sensors.Exists() || !sensors.IsArray() {
+		return
+	}
+	sensors.ForEach(func(idx, val gjson.Result) bool {
+		var sensorID string
+		var tempC float64
+		if val.IsObject() {
+			// {"sensor": 1, "temperature": 38} 형식
+			sensorID = fmt.Sprintf("%d", val.Get("sensor").Int())
+			tempC = val.Get("temperature").Float()
+		} else {
+			// [38, 40, ...] 정수 배열 형식 — 1-based sensor_id
+			sensorID = fmt.Sprintf("%d", idx.Int()+1)
+			tempC = val.Float()
+		}
+		// 0 또는 음수는 미장착 센서 — skip
+		if tempC <= 0 {
+			return true
+		}
+		smart.ch <- prometheus.MustNewConstMetric(
+			metricNvmeTemperatureSensor,
+			prometheus.GaugeValue,
+			tempC,
+			smart.device.device,
+			smart.device.serial,
+			smart.device.model,
+			sensorID,
+		)
+		return true
+	})
 }
 
 func (smart *SMARTctl) mineSCSIPercentageUsedEndurance() {
