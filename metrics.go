@@ -34,6 +34,24 @@ package main
 //                                       year_of_manufacture
 //   모든 신규 메트릭 라벨: device, serial_number, model_name (3개) — 기존 SCSI
 //   메트릭과 동일.
+//
+// 2026-05-08-2: SATA(ACS-4) + NVMe SMART 추가 노출 메트릭 9종 (Patch 1+2).
+//   ATA pending_defects (1)         — ACS-4 표준 latent media defect counter
+//   NVMe host commands (2)          — host_reads, host_writes (워크로드 패턴)
+//   NVMe controller_busy_time (1)   — queue depth 압박 지표
+//   NVMe unsafe_shutdowns (1)       — power loss 이벤트 (NAND wear 상관)
+//   NVMe thermal time (2)           — warning_temp_time, critical_comp_time
+//                                       (누적 thermal stress 시간)
+//   NVMe thermal management (2)     — thermal_temp_1/2_transition_count
+//                                       (controller throttling 빈도)
+//
+// 2026-05-08-3: smartctl 7.5 거의 모든 카운터/게이지 노출 (Patch 3+4+5).
+//   ATA error log total (1)         — error_count_total (lifetime ATA error sum)
+//   ATA last self-test (1)          — table[0].lifetime_hours (최근 self-test 시점)
+//   SCSI lifetime temp (2)          — environmental_reports lifetime min/max
+//   NVMe thermal total_time (2)     — thermal_temp_1/2_total_time (분 단위)
+//   NVMe per-sensor temperature (1) — temperature_sensors[] (sensor_id 라벨)
+//   본 patch로 smartctl -x -j 출력 카운터/게이지 95%+ 노출.
 // 본 주석은 검수 식별용이며 컴파일/런타임에 어떠한 영향도 주지 않습니다.
 // -----------------------------------------------------------------------------
 
@@ -713,6 +731,189 @@ var (
 			"device",
 			"serial_number",
 			"model_name",
+		},
+		nil,
+	)
+
+	// ------------------------------------------------------------------
+	// 2026-05-08-2 (Patch 1): ATA pending defects (ACS-4)
+	// ------------------------------------------------------------------
+	metricATAPendingDefectsCount = prometheus.NewDesc(
+		"smartctl_ata_pending_defects_count",
+		"ATA pending defects count (ACS-4 Pending Defects log, log address 0x0Ah)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+
+	// ------------------------------------------------------------------
+	// 2026-05-08-2 (Patch 2): NVMe SMART/Health Information Log 추가 필드
+	// ------------------------------------------------------------------
+	metricNvmeHostReads = prometheus.NewDesc(
+		"smartctl_nvme_host_reads_commands",
+		"NVMe host_reads — number of host read commands processed",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricNvmeHostWrites = prometheus.NewDesc(
+		"smartctl_nvme_host_writes_commands",
+		"NVMe host_writes — number of host write commands processed",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricNvmeControllerBusyTime = prometheus.NewDesc(
+		"smartctl_nvme_controller_busy_time_minutes",
+		"NVMe controller_busy_time in minutes (queue pressure indicator)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricNvmeUnsafeShutdowns = prometheus.NewDesc(
+		"smartctl_nvme_unsafe_shutdowns",
+		"NVMe unsafe_shutdowns count (power loss without proper shutdown)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricNvmeWarningTempTime = prometheus.NewDesc(
+		"smartctl_nvme_warning_temp_time_minutes",
+		"NVMe warning_temp_time in minutes (cumulative time over warning threshold)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricNvmeCriticalCompTime = prometheus.NewDesc(
+		"smartctl_nvme_critical_comp_time_minutes",
+		"NVMe critical_comp_time in minutes (cumulative time at critical composite temperature)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricNvmeThermalTemp1TransitionCount = prometheus.NewDesc(
+		"smartctl_nvme_thermal_temp_1_transition_count",
+		"NVMe thermal management temperature 1 transition count (controller throttle events)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricNvmeThermalTemp2TransitionCount = prometheus.NewDesc(
+		"smartctl_nvme_thermal_temp_2_transition_count",
+		"NVMe thermal management temperature 2 transition count (controller throttle events)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+
+	// ------------------------------------------------------------------
+	// 2026-05-08-3 (Patch 3): ATA error log total + last self-test
+	// ------------------------------------------------------------------
+	metricDeviceErrorLogTotal = prometheus.NewDesc(
+		"smartctl_device_error_log_total",
+		"Device SMART error log lifetime total error count (error_count_total field)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+			"error_log_type",
+		},
+		nil,
+	)
+	metricDeviceLastSelfTestHours = prometheus.NewDesc(
+		"smartctl_device_last_self_test_hours",
+		"Lifetime power-on hours at the most recent self-test entry (table[0])",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+			"self_test_log_type",
+		},
+		nil,
+	)
+
+	// ------------------------------------------------------------------
+	// 2026-05-08-3 (Patch 4): SCSI environmental reports — lifetime temp
+	// ------------------------------------------------------------------
+	metricSCSILifetimeMaxTemperature = prometheus.NewDesc(
+		"smartctl_scsi_lifetime_max_temperature_celsius",
+		"SCSI lifetime maximum reported temperature (Celsius, from scsi_environmental_reports)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricSCSILifetimeMinTemperature = prometheus.NewDesc(
+		"smartctl_scsi_lifetime_min_temperature_celsius",
+		"SCSI lifetime minimum reported temperature (Celsius, from scsi_environmental_reports)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+
+	// ------------------------------------------------------------------
+	// 2026-05-08-3 (Patch 5): NVMe thermal total time + per-sensor
+	// ------------------------------------------------------------------
+	metricNvmeThermalTemp1TotalTime = prometheus.NewDesc(
+		"smartctl_nvme_thermal_temp_1_total_time",
+		"NVMe cumulative time at thermal management temperature 1 (minutes)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricNvmeThermalTemp2TotalTime = prometheus.NewDesc(
+		"smartctl_nvme_thermal_temp_2_total_time",
+		"NVMe cumulative time at thermal management temperature 2 (minutes)",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+		},
+		nil,
+	)
+	metricNvmeTemperatureSensor = prometheus.NewDesc(
+		"smartctl_nvme_temperature_sensor_celsius",
+		"NVMe per-sensor temperature reading (Celsius). NVMe spec allows up to 8 sensors per controller.",
+		[]string{
+			"device",
+			"serial_number",
+			"model_name",
+			"sensor_id",
 		},
 		nil,
 	)
