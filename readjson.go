@@ -55,6 +55,14 @@ package main
 //   - 효과: SAS PHY 카운터 4종, scsi_background_scan, lifetime cycle
 //     counter (load/unload, specified count over lifetime) 등 SINDy 분석에
 //     유용한 카운터들이 모두 노출됨.
+//
+// 2026-05-08-2: ATA 측에도 --log=defects 추가 (Patch 1)
+//   - ACS-4 이후 SATA 디스크는 "Pending Defects log" (ATA log address 0x0Ah)
+//     를 표준으로 노출. 신규 SATA HDD/SSD 가 발견한 latent media defect 의
+//     실시간 카운터로 SINDy 분석의 강한 feature.
+//   - 기존엔 SCSI 분기에서만 추가됐었는데, ATA 분기에도 추가하여
+//     ata_pending_defects.count → metricATAPendingDefectsCount 로 노출.
+//   - 미지원 disk(구형 ATA)는 --tolerance=verypermissive 가 흡수하므로 안전.
 // 본 주석은 검수 식별용이며 컴파일/런타임에 어떠한 영향도 주지 않습니다.
 // -----------------------------------------------------------------------------
 
@@ -149,16 +157,20 @@ func readSMARTctl(logger *slog.Logger, device Device, wg *sync.WaitGroup) {
 	}
 	if isExplicitSCSI || isAmbiguous {
 		// SCSI/SAS logs (확실한 SCSI/SAS + 모호 케이스 — RAID 뒤 SAS 보장)
-		// `smartctl -x -j` 등가 확장: defects + background + sasphy + ssd
+		// `smartctl -x -j` 등가 확장: background + sasphy + ssd
 		// + xerror + xselftest. SAS HDD 의 최대 데이터를 노출한다.
 		smartctlArgs = append(smartctlArgs,
-			"--log=defects",
 			"--log=background",
 			"--log=sasphy",
 			"--log=ssd",
 			"--log=xerror",
 			"--log=xselftest",
 		)
+	}
+	// --log=defects: ATA(ACS-4) 및 SCSI(SBC-3) 양쪽 transport 모두 지원.
+	// NVMe 는 미지원 → 명시적으로 NVMe 만 제외하고 추가하여 중복 없이 단일.
+	if !isNVMe {
+		smartctlArgs = append(smartctlArgs, "--log=defects")
 	}
 	smartctlArgs = append(smartctlArgs, "--device="+device.Type, device.Name)
 
