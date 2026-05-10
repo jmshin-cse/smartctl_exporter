@@ -399,10 +399,17 @@ func (smart *SMARTctl) minePowerCycleCount() {
 func (smart *SMARTctl) mineDeviceSCTStatus() {
 	status := smart.json.Get("ata_sct_status")
 	if status.Exists() {
+		// smartctl 7.5+ emits device_state as sub-object {value, string}
+		// (smartmontools ataprint.cpp line 3032: jref["device_state"]["value"] = ...)
+		// Fall back to legacy flat value for older smartctl versions.
+		ds := status.Get("device_state.value")
+		if !ds.Exists() {
+			ds = status.Get("device_state")
+		}
 		smart.ch <- prometheus.MustNewConstMetric(
 			metricDeviceState,
 			prometheus.GaugeValue,
-			status.Get("device_state").Float(),
+			ds.Float(),
 			smart.device.device,
 			smart.device.serial,
 			smart.device.model,
