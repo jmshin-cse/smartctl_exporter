@@ -650,9 +650,14 @@ func (smart *SMARTctl) mineDeviceErrorLog() {
 			smart.device.model,
 			logType,
 		)
-		// 2026-05-08-3 (Patch 3): error_count_total — lifetime ATA error sum.
-		// 일부 log 변종(extended)에는 미존재할 수 있어 .Exists() 가드.
-		if v := status.Get("error_count_total"); v.Exists() {
+		// 2026-05-09 (Patch 3 fix): 처음에는 "error_count_total" 키 사용 (잘못).
+		// smartctl 7.5 source 직접 확인 결과 ata_smart_error_log 의 summary/
+		// extended 에는 error_count_total 키 없음. self_test_log 에만 있음.
+		// 의미상 가까운 대체: "logged_count" (실제 보관된 entry 수).
+		//   count = lifetime sum (위에서 이미 emit)
+		//   logged_count = min(count, 5) — log buffer 의 실 보관 수
+		// metric 이름 (smartctl_device_error_log_total) 은 유지, source key 만 정정.
+		if v := status.Get("logged_count"); v.Exists() {
 			smart.ch <- prometheus.MustNewConstMetric(
 				metricDeviceErrorLogTotal,
 				prometheus.CounterValue,
@@ -972,19 +977,31 @@ func (smart *SMARTctl) mineSCSISasPhyEvents() {
 
 // mineSCSIBackgroundScan — SCSI background scan log (--log=background)
 //
-// JSON 구조 (smartctl 7.5):
+// 실제 JSON 구조 (smartctl 7.5 source code 검증, scsiprint.cpp line ~1383):
 //   "scsi_background_scan": {
-//     "status": { "code": 0, "string": "..." },
-//     "accumulated_power_on_minutes": N,
-//     "background_scans_performed": N,
-//     "background_medium_scans_performed": N
+//     "status": {
+//       "value": N,                              // bms_status enum value
+//       "string": "...",                          // status 의 텍스트
+//       "number_scans_performed": N,              // scan 횟수
+//       "scan_progress": "99.99%",                // (string)
+//       "number_medium_scans_performed": N        // medium scan 횟수
+//     },
+//     "result_<N>": { ... }                       // scan 결과 entry 별
 //   }
+//
+// 2026-05-09 (Patch 4 fix): 초기 작성 시 키 추측 (background_scans_performed,
+// status.code) 가 잘못. source 직접 확인 결과 status sub-object 안에
+// number_scans_performed / number_medium_scans_performed / value (code 아님).
 func (smart *SMARTctl) mineSCSIBackgroundScan() {
 	bs := smart.json.Get("scsi_background_scan")
 	if !bs.Exists() {
 		return
 	}
-	if v := bs.Get("background_scans_performed"); v.Exists() {
+	status := bs.Get("status")
+	if !status.Exists() {
+		return
+	}
+	if v := status.Get("number_scans_performed"); v.Exists() {
 		smart.ch <- prometheus.MustNewConstMetric(
 			metricSCSIBackgroundScansPerformed,
 			prometheus.CounterValue,
@@ -994,7 +1011,7 @@ func (smart *SMARTctl) mineSCSIBackgroundScan() {
 			smart.device.model,
 		)
 	}
-	if v := bs.Get("background_medium_scans_performed"); v.Exists() {
+	if v := status.Get("number_medium_scans_performed"); v.Exists() {
 		smart.ch <- prometheus.MustNewConstMetric(
 			metricSCSIBackgroundMediumScansPerformed,
 			prometheus.CounterValue,
@@ -1004,7 +1021,7 @@ func (smart *SMARTctl) mineSCSIBackgroundScan() {
 			smart.device.model,
 		)
 	}
-	if v := bs.Get("status.code"); v.Exists() {
+	if v := status.Get("value"); v.Exists() {
 		smart.ch <- prometheus.MustNewConstMetric(
 			metricSCSIBackgroundScanStatusCode,
 			prometheus.GaugeValue,
@@ -1286,29 +1303,38 @@ func (smart *SMARTctl) mineDeviceLastSelfTestHours() {
 
 // mineSCSIEnvironmentalReports — SCSI Environmental Reporting log (page 0x0d).
 //
-// JSON 구조 (smartctl 7.5):
+// 실제 JSON 구조 (smartctl 7.5 source code 검증, scsiprint.cpp line ~3332):
 //   "scsi_environmental_reports": {
-//     "current_temperature": N,
-//     "lifetime_max_temperature": N,
-//     "lifetime_min_temperature": N,
-//     "max_temperature_since_power_on": N,
-//     "min_temperature_since_power_on": N,
-//     "max_relative_humidity": N,        // 일부 enterprise drive 만
-//     "min_relative_humidity": N
+//     "temperature_1": {                       // 센서별 sub-object (1-based index)
+//       "parameter_code": N,
+//       "current": N,                          // str2key("Current")
+//       "lifetime_maximum": N,                 // str2key("Lifetime maximum")
+//       "lifetime_minimum": N,                 // str2key("Lifetime minimum")
+//       "maximum_since_power_on": N,
+//       "minimum_since_power_on": N,
+//       "maximum_other": N,                    // OTV 필드 set 일 때만
+//       "minimum_other": N
+//     },
+//     "temperature_2": { ... },                // 추가 센서 (있으면)
+//     "relative_humidity_1": { ... }           // humidity 지원 drive 만
 //   }
 //
-// 2026-05-08-3 (Patch 4): mineTemperatures() 가 현재 온도(top-level temperature.*)
-// 만 잡으므로 lifetime min/max 는 별도 노출. SINDy 분석 시 누적 thermal stress
-// (lifetime_max - 현재) 등의 feature 사용 가능.
-//
-// 키 명명은 vendor / smartmontools 버전에 따라 변형이 있어 .Exists() 가드만 사용.
-// 미지원 drive 는 자동 skip.
+// 2026-05-09 (Patch 4 fix): 초기 작성 시 키 추측 (lifetime_max_temperature) 가
+// 잘못. smartmontools 7.5 source 직접 확인 결과 temperature_N 중간 노드 +
+// lifetime_maximum/minimum (전체 단어). temperature_1 = 메인 센서 (일반적
+// SAS HDD 는 하나만 보고).
 func (smart *SMARTctl) mineSCSIEnvironmentalReports() {
 	env := smart.json.Get("scsi_environmental_reports")
 	if !env.Exists() {
 		return
 	}
-	if v := env.Get("lifetime_max_temperature"); v.Exists() {
+	// temperature_1 = 메인 센서. 대부분 SAS HDD 는 하나만 보고.
+	// 다중 센서 (temperature_2, _3 ...) 는 enterprise 일부만 사용.
+	temp1 := env.Get("temperature_1")
+	if !temp1.Exists() {
+		return
+	}
+	if v := temp1.Get("lifetime_maximum"); v.Exists() {
 		smart.ch <- prometheus.MustNewConstMetric(
 			metricSCSILifetimeMaxTemperature,
 			prometheus.GaugeValue,
@@ -1318,7 +1344,7 @@ func (smart *SMARTctl) mineSCSIEnvironmentalReports() {
 			smart.device.model,
 		)
 	}
-	if v := env.Get("lifetime_min_temperature"); v.Exists() {
+	if v := temp1.Get("lifetime_minimum"); v.Exists() {
 		smart.ch <- prometheus.MustNewConstMetric(
 			metricSCSILifetimeMinTemperature,
 			prometheus.GaugeValue,
