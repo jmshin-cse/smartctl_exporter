@@ -161,8 +161,14 @@ func readSMARTctl(logger *slog.Logger, device Device, wg *sync.WaitGroup) {
 	}
 	if isExplicitATA || isAmbiguous {
 		// ATA/SATA logs (확실한 ATA + 모호 케이스)
+		// 2026-05-11 (8th fix): --log=scttempsts 추가 — SCT Status + Temperature
+		// History 를 JSON 으로 emit 시킴 (ata_sct_status). 이 옵션이 없으면
+		// ata_sct_status JSON 객체 자체가 생성되지 않아 device_state metric 이
+		// 항상 nil 이 된다. smartctl 7.5 source 직접 확인 결과 ataprint.cpp 의
+		// ataPrintSCTStatus() 는 --log=scttempsts 호출 시에만 실행됨.
+		// scterc 와 별개의 로그 (서로 다른 SCT subcommand).
 		smartctlArgs = append(smartctlArgs,
-			"--log=devstat", "--log=sataphy", "--log=scterc")
+			"--log=devstat", "--log=sataphy", "--log=scterc", "--log=scttempsts")
 	}
 	if isExplicitSCSI || isAmbiguous {
 		// SCSI/SAS logs (확실한 SCSI/SAS + 모호 케이스 — RAID 뒤 SAS 보장)
